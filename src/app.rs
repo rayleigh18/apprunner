@@ -290,9 +290,15 @@ pub fn run() -> Result<()> {
                 if let Some(ref mut browser) = app.file_browser {
                     match handle_browser_key(key, browser) {
                         BrowserAction::Select(path) => {
-                            // Update form working_dir if form is active
-                            if let Some(ref mut form) = app.form {
-                                form.working_dir = path.display().to_string();
+                            let path_str = path.display().to_string();
+                            // Route selection to whichever component opened the browser
+                            if let Some(ref mut modal) = app.template_modal {
+                                // Update the current field in the template modal
+                                let idx = modal.current_field;
+                                modal.values[idx] = path_str.clone();
+                                modal.cursor_pos = path_str.len();
+                            } else if let Some(ref mut form) = app.form {
+                                form.working_dir = path_str;
                             }
                             app.file_browser = None;
                         }
@@ -462,6 +468,20 @@ fn handle_template_modal_key(app: &mut App, key: crossterm::event::KeyEvent) -> 
     // Ctrl+C cancels
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.template_modal = None;
+        return Ok(());
+    }
+
+    // Ctrl+B opens file browser for the current field
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('b') {
+        if let Some(ref modal) = app.template_modal {
+            let current_value = &modal.values[modal.current_field];
+            let start_dir = if current_value.is_empty() {
+                "~".to_string()
+            } else {
+                current_value.clone()
+            };
+            app.file_browser = Some(FileBrowser::new(&start_dir));
+        }
         return Ok(());
     }
 
