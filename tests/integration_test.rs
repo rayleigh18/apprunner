@@ -30,6 +30,8 @@ fn test_full_lifecycle() {
         env_vars: "{}".to_string(),
         auto_start: false,
         max_runtime_secs: None,
+        interval_seconds: None,
+        template_vars: vec![],
     };
     let id = create_app(&conn, &new_app).unwrap();
     assert!(id > 0);
@@ -190,6 +192,8 @@ fn test_db_health_check_integration() {
         env_vars: "{}".to_string(),
         auto_start: false,
         max_runtime_secs: None,
+        interval_seconds: None,
+        template_vars: vec![],
     };
     let id1 = create_app(&conn, &invalid_app).unwrap();
     let app1 = get_app_by_id(&conn, id1).unwrap();
@@ -207,6 +211,8 @@ fn test_db_health_check_integration() {
         env_vars: r#"{"PORT": "3000"}"#.to_string(),
         auto_start: false,
         max_runtime_secs: Some(300),
+        interval_seconds: None,
+        template_vars: vec![],
     };
     let id2 = create_app(&conn, &valid_app).unwrap();
     let app2 = get_app_by_id(&conn, id2).unwrap();
@@ -233,6 +239,8 @@ fn test_runtime_alerts_integration() {
         env_vars: "{}".to_string(),
         auto_start: false,
         max_runtime_secs: Some(1),
+        interval_seconds: None,
+        template_vars: vec![],
     };
     let id = create_app(&conn, &app_data).unwrap();
     let app = get_app_by_id(&conn, id).unwrap();
@@ -304,6 +312,8 @@ fn test_db_crud_full_cycle() {
         env_vars: "{}".to_string(),
         auto_start: false,
         max_runtime_secs: Some(60),
+        interval_seconds: None,
+        template_vars: vec![],
     };
     let id = create_app(&conn, &app).unwrap();
 
@@ -319,6 +329,8 @@ fn test_db_crud_full_cycle() {
         env_vars: r#"{"KEY": "val"}"#.to_string(),
         auto_start: true,
         max_runtime_secs: None,
+        interval_seconds: None,
+        template_vars: vec![],
     };
     update_app(&conn, id, &updated).unwrap();
     let retrieved = get_app_by_id(&conn, id).unwrap();
@@ -349,6 +361,8 @@ fn test_no_alerts_when_under_threshold() {
         env_vars: "{}".to_string(),
         auto_start: false,
         max_runtime_secs: Some(300),
+        interval_seconds: None,
+        template_vars: vec![],
         created_at: "2024-01-01".to_string(),
     };
 

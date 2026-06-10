@@ -6,6 +6,7 @@ use ratatui::widgets::*;
 
 use crate::db::models::{AppConfig, NewApp};
 use crate::process::health::check_app_health;
+use crate::template::{self, TemplateVar};
 
 /// Which field is currently focused in the form.
 #[derive(Debug, Clone, PartialEq)]
@@ -16,6 +17,7 @@ pub enum FormField {
     EnvVars,
     AutoStart,
     MaxRuntime,
+    Interval,
 }
 
 /// Actions returned from form key handling.
@@ -38,10 +40,12 @@ pub struct FormState {
     pub env_vars: String,
     pub auto_start: bool,
     pub max_runtime: String,
+    pub interval: String,
     pub errors: Vec<String>,
     pub editing: bool,
     pub edit_id: Option<i64>,
     pub cursor_pos: usize,
+    pub template_vars: Vec<TemplateVar>,
 }
 
 impl Default for FormState {
@@ -61,6 +65,7 @@ impl FormState {
                 FormField::EnvVars,
                 FormField::AutoStart,
                 FormField::MaxRuntime,
+                FormField::Interval,
             ],
             current_field: 0,
             name: String::new(),
@@ -69,10 +74,12 @@ impl FormState {
             env_vars: String::new(),
             auto_start: false,
             max_runtime: String::new(),
+            interval: String::new(),
             errors: Vec::new(),
             editing: false,
             edit_id: None,
             cursor_pos: 0,
+            template_vars: Vec::new(),
         }
     }
 
@@ -82,6 +89,11 @@ impl FormState {
         let env_display = json_to_env_string(&app.env_vars);
 
         let max_runtime = match app.max_runtime_secs {
+            Some(secs) => secs.to_string(),
+            None => String::new(),
+        };
+
+        let interval = match app.interval_seconds {
             Some(secs) => secs.to_string(),
             None => String::new(),
         };
@@ -96,6 +108,7 @@ impl FormState {
                 FormField::EnvVars,
                 FormField::AutoStart,
                 FormField::MaxRuntime,
+                FormField::Interval,
             ],
             current_field: 0,
             name: app.name.clone(),
@@ -104,10 +117,12 @@ impl FormState {
             env_vars: env_display,
             auto_start: app.auto_start,
             max_runtime,
+            interval,
             errors: Vec::new(),
             editing: true,
             edit_id: Some(app.id),
             cursor_pos: name_len,
+            template_vars: app.template_vars.clone(),
         }
     }
 
@@ -126,6 +141,7 @@ impl FormState {
                 }
             }
             FormField::MaxRuntime => &self.max_runtime,
+            FormField::Interval => &self.interval,
         }
     }
 
@@ -139,6 +155,7 @@ impl FormState {
             FormField::EnvVars => &mut self.env_vars,
             FormField::AutoStart => &mut self.name, // placeholder, use toggle instead
             FormField::MaxRuntime => &mut self.max_runtime,
+            FormField::Interval => &mut self.interval,
         }
     }
 
@@ -238,6 +255,22 @@ impl FormState {
             }
         }
 
+        // 4. Validate interval
+        let interval_trimmed = self.interval.trim();
+        if !interval_trimmed.is_empty() {
+            match interval_trimmed.parse::<i64>() {
+                Ok(v) if v <= 0 => {
+                    self.errors
+                        .push("Interval must be a positive number (seconds)".to_string());
+                }
+                Err(_) => {
+                    self.errors
+                        .push("Interval must be a valid number (seconds)".to_string());
+                }
+                _ => {}
+            }
+        }
+
         self.errors.is_empty()
     }
 
@@ -251,6 +284,13 @@ impl FormState {
             .ok()
             .filter(|v| *v > 0);
 
+        let interval_seconds = self
+            .interval
+            .trim()
+            .parse::<i64>()
+            .ok()
+            .filter(|v| *v > 0);
+
         NewApp {
             name: self.name.trim().to_string(),
             working_dir: self.working_dir.trim().to_string(),
@@ -258,7 +298,21 @@ impl FormState {
             env_vars: env_json,
             auto_start: self.auto_start,
             max_runtime_secs,
+            interval_seconds,
+            template_vars: self.template_vars.clone(),
         }
+    }
+
+    /// Detect template variables from command, working_dir, and env_vars fields.
+    /// Syncs the detected variables with existing template_vars metadata.
+    pub fn detect_template_vars(&mut self) {
+        let env_json = env_string_to_json(&self.env_vars);
+        let detected = template::extract_variables_from_fields(&[
+            &self.command,
+            &self.working_dir,
+            &env_json,
+        ]);
+        self.template_vars = template::sync_template_vars(&self.template_vars, &detected);
     }
 }
 
@@ -280,6 +334,14 @@ pub fn handle_form_key(key: KeyEvent, form: &mut FormState) -> FormAction {
     match key.code {
         KeyCode::Esc => FormAction::Cancel,
         KeyCode::Tab => {
+            // Detect template variables when leaving command, working_dir, or env_vars fields
+            let current = &form.fields[form.current_field];
+            if matches!(
+                current,
+                FormField::Command | FormField::WorkingDir | FormField::EnvVars
+            ) {
+                form.detect_template_vars();
+            }
             if key.modifiers.contains(KeyModifiers::SHIFT) {
                 form.prev_field();
             } else {
@@ -288,6 +350,14 @@ pub fn handle_form_key(key: KeyEvent, form: &mut FormState) -> FormAction {
             FormAction::Continue
         }
         KeyCode::BackTab => {
+            // Detect template variables when leaving command, working_dir, or env_vars fields
+            let current = &form.fields[form.current_field];
+            if matches!(
+                current,
+                FormField::Command | FormField::WorkingDir | FormField::EnvVars
+            ) {
+                form.detect_template_vars();
+            }
             form.prev_field();
             FormAction::Continue
         }
@@ -366,6 +436,7 @@ pub fn render_form(frame: &mut Frame, form: &FormState) {
         "Env vars:",
         "Auto-start:",
         "Max runtime:",
+        "Interval:",
     ];
 
     // Reserve lines: fields + blank + errors + blank + hints
@@ -400,6 +471,13 @@ pub fn render_form(frame: &mut Frame, form: &FormState) {
                     format!("{} secs", form.max_runtime)
                 }
             }
+            FormField::Interval => {
+                if form.interval.is_empty() {
+                    String::new()
+                } else {
+                    format!("{} secs", form.interval)
+                }
+            }
         };
 
         // For text fields, show cursor indicator
@@ -410,6 +488,7 @@ pub fn render_form(frame: &mut Frame, form: &FormState) {
                 FormField::Command => &form.command,
                 FormField::EnvVars => &form.env_vars,
                 FormField::MaxRuntime => &form.max_runtime,
+                FormField::Interval => &form.interval,
                 _ => &form.name,
             };
             // Truncate for display
@@ -581,7 +660,7 @@ mod tests {
         assert_eq!(form.current_field, 0);
         assert_eq!(form.cursor_pos, 0);
         assert!(form.errors.is_empty());
-        assert_eq!(form.fields.len(), 6);
+        assert_eq!(form.fields.len(), 7);
     }
 
     #[test]
@@ -594,6 +673,8 @@ mod tests {
             env_vars: r#"{"PORT":"3000","NODE_ENV":"dev"}"#.to_string(),
             auto_start: true,
             max_runtime_secs: Some(300),
+            interval_seconds: None,
+            template_vars: vec![],
             created_at: "2024-01-01".to_string(),
         };
 
@@ -626,6 +707,8 @@ mod tests {
         form.next_field();
         assert_eq!(form.current_field, 5);
         form.next_field();
+        assert_eq!(form.current_field, 6);
+        form.next_field();
         assert_eq!(form.current_field, 0); // wraps
     }
 
@@ -634,11 +717,11 @@ mod tests {
         let mut form = FormState::new();
         assert_eq!(form.current_field, 0);
         form.prev_field();
-        assert_eq!(form.current_field, 5); // wraps to end
+        assert_eq!(form.current_field, 6); // wraps to end
+        form.prev_field();
+        assert_eq!(form.current_field, 5);
         form.prev_field();
         assert_eq!(form.current_field, 4);
-        form.prev_field();
-        assert_eq!(form.current_field, 3);
     }
 
     #[test]

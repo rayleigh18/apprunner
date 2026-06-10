@@ -151,6 +151,30 @@ impl ManagedProcess {
         }
     }
 
+    /// Cron-specific tick: check if process exited (any exit code) and mark stopped.
+    /// Does NOT attempt restart. Returns `true` if the process exited.
+    pub fn tick_cron(&mut self) -> bool {
+        if !matches!(self.state, ProcessState::Running { .. }) {
+            return false;
+        }
+
+        let exited = if let Some(ref mut proc) = self.pty_process {
+            match proc.try_wait() {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(_) => true,
+            }
+        } else {
+            return false;
+        };
+
+        if exited {
+            self.pty_process = None;
+            self.state = ProcessState::Stopped;
+        }
+        exited
+    }
+
     /// Get current output buffer contents.
     pub fn get_output(&self) -> Vec<u8> {
         self.output_buffer.lock().unwrap().clone()

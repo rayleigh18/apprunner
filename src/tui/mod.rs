@@ -10,6 +10,7 @@ use std::io::{self, Stdout};
 pub mod file_browser;
 pub mod form;
 pub mod input;
+pub mod mask_form;
 pub mod ui;
 
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;

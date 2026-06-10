@@ -15,12 +15,24 @@ CREATE TABLE IF NOT EXISTS apps (
     env_vars TEXT DEFAULT '{}',
     auto_start BOOLEAN DEFAULT 0,
     max_runtime_secs INTEGER DEFAULT NULL,
+    interval_seconds INTEGER DEFAULT NULL,
+    template_vars TEXT DEFAULT '[]',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_masks (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    target_url TEXT NOT NULL,
+    listen_port INTEGER NOT NULL,
+    headers TEXT DEFAULT '{}',
+    auto_start BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ";
 
@@ -35,6 +47,48 @@ fn setup_schema(conn: &Connection) -> Result<()> {
         [],
     )
     .context("Failed to insert default config")?;
+
+    // Migration: add interval_seconds column if it doesn't exist (for existing DBs)
+    let has_interval_col: bool = {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(apps)")
+            .context("Failed to query table info")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .context("Failed to read table info")?
+            .filter_map(|r| r.ok())
+            .collect();
+        columns.iter().any(|c| c == "interval_seconds")
+    };
+
+    if !has_interval_col {
+        conn.execute(
+            "ALTER TABLE apps ADD COLUMN interval_seconds INTEGER DEFAULT NULL",
+            [],
+        )
+        .context("Failed to add interval_seconds column")?;
+    }
+
+    // Migration: add template_vars column if it doesn't exist (for existing DBs)
+    let has_template_vars_col: bool = {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(apps)")
+            .context("Failed to query table info")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .context("Failed to read table info")?
+            .filter_map(|r| r.ok())
+            .collect();
+        columns.iter().any(|c| c == "template_vars")
+    };
+
+    if !has_template_vars_col {
+        conn.execute(
+            "ALTER TABLE apps ADD COLUMN template_vars TEXT DEFAULT '[]'",
+            [],
+        )
+        .context("Failed to add template_vars column")?;
+    }
 
     Ok(())
 }

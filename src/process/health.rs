@@ -63,7 +63,17 @@ pub fn check_app_health(working_dir: &str, command: &str, env_vars: &str) -> Hea
         errors.push(HealthError::EmptyCommand);
     } else {
         let binary = trimmed_command.split_whitespace().next().unwrap();
-        if which::which(binary).is_err() {
+        // Use shell-based resolution (command -v) since processes are spawned via /bin/sh -c.
+        // This correctly resolves binaries managed by mise, pyenv, nvm, etc.
+        let found = which::which(binary).is_ok()
+            || std::process::Command::new("/bin/sh")
+                .args(["-lc", &format!("command -v {}", binary)])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        if !found {
             errors.push(HealthError::CommandNotFound(binary.to_string()));
         }
     }

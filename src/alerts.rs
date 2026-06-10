@@ -103,6 +103,8 @@ mod tests {
             env_vars: "{}".to_string(),
             auto_start: false,
             max_runtime_secs,
+            interval_seconds: None,
+            template_vars: vec![],
             created_at: "2024-01-01".to_string(),
         }
     }
